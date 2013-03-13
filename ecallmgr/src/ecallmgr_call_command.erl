@@ -420,6 +420,8 @@ get_fs_app(Node, UUID, JObj, <<"bridge">>) ->
 
             DialStrings = ecallmgr_util:build_bridge_string(Endpoints, DialSeparator),
 
+            CCVs = wh_json:get_value(<<"Custom-Channel-Vars">>, JObj),
+
             Routines = [fun(DP) ->
                                 case wh_json:get_integer_value(<<"Timeout">>, JObj) of
                                     'undefined' -> DP;
@@ -435,41 +437,41 @@ get_fs_app(Node, UUID, JObj, <<"bridge">>) ->
                                  case wh_json:get_value(<<"Ringback">>, JObj) of
                                      'undefined' -> DP;
                                      Ringback ->
-                                         Stream = ecallmgr_util:media_path(Ringback, extant, UUID, JObj),
+                                         Stream = ecallmgr_util:media_path(Ringback, 'extant', UUID, JObj),
                                          lager:debug("bridge has custom ringback: ~s", [Stream]),
-                                         [{"application", <<"set ringback=", Stream/binary>>},
-                                          {"application", "set instant_ringback=true"}
-                                          |DP
+                                         [{"application", <<"set ringback=", Stream/binary>>}
+                                          ,{"application", "set instant_ringback=true"}
+                                          | DP
                                          ]
                                  end
                          end
                         ,fun(DP) ->
                                  case wh_json:get_value(<<"Hold-Media">>, JObj) of
                                      'undefined' ->
-                                         case wh_json:get_value([<<"Custom-Channel-Vars">>, <<"Hold-Media">>], JObj) of
+                                         case wh_json:get_value(<<"Hold-Media">>, CCVs) of
                                              'undefined' ->
                                                  case ecallmgr_fs_channel:import_moh(UUID) of
+                                                     'false' -> DP;
                                                      'true' ->
                                                          [{"application", "export hold_music=${hold_music}"}
                                                           ,{"application", "set import=hold_music"}
-                                                          |DP
-                                                         ];
-                                                     'false' -> DP
+                                                          | DP
+                                                         ]
                                                  end;
                                              Media ->
-                                                 Stream = ecallmgr_util:media_path(Media, extant, UUID, JObj),
+                                                 Stream = ecallmgr_util:media_path(Media, 'extant', UUID, JObj),
                                                  lager:debug("bridge has custom music-on-hold in channel vars: ~s", [Stream]),
                                                  [{"application", <<"set hold_music=", Stream/binary>>}|DP]
                                          end;
                                      Media ->
-                                         Stream = ecallmgr_util:media_path(Media, extant, UUID, JObj),
+                                         Stream = ecallmgr_util:media_path(Media, 'extant', UUID, JObj),
                                          lager:debug("bridge has custom music-on-hold: ~s", [Stream]),
                                          [{"application", <<"set hold_music=", Stream/binary>>}|DP]
                                  end
                          end
                         ,fun(DP) ->
                                  case wh_json:is_true(<<"Secure-RTP">>, JObj, 'false') of
-                                     'true' -> [{"application", "set sip_secure_media=true"}|DP];
+                                     'true' -> [{"application", "set sip_secure_media=true"} | DP];
                                      'false' -> DP
                                  end
                          end
@@ -485,22 +487,11 @@ get_fs_app(Node, UUID, JObj, <<"bridge">>) ->
                                          DP
                                  end
                          end
-                        ,fun(DP) ->
-                                 CCVs = wh_json:get_value(<<"Custom-Channel-Vars">>, JObj),
-                                 case wh_json:is_json_object(CCVs) of
-                                     'true' ->
-                                         [{"application", <<"set ", Var/binary, "=", (wh_util:to_binary(V))/binary>>}
-                                          || {K, V} <- wh_json:to_proplist(CCVs),
-                                             (Var = props:get_value(K, ?SPECIAL_CHANNEL_VARS)) =/= 'undefined'
-                                         ] ++ DP;
-                                     _ ->
-                                         DP
-                                 end
-                         end
+                        ,fun(DP) -> add_ccv_setters(UUID, CCVs, DP) end
                         ,fun(DP) ->
                                  [{"application", "set failure_causes=NORMAL_CLEARING,ORIGINATOR_CANCEL,CRASH"}
                                   ,{"application", "set continue_on_fail=true"}
-                                  |DP
+                                  | DP
                                  ]
                          end
                         ,fun(DP) ->
@@ -516,18 +507,17 @@ get_fs_app(Node, UUID, JObj, <<"bridge">>) ->
                                                              ,ecallmgr_fs_xml:get_channel_vars(wh_json:set_values(Props, JObj))
                                                              ,DialStrings
                                                             ]),
-                                 [{"application", BridgeCmd}|DP]
+                                 [{"application", BridgeCmd} | DP]
                          end
                         ,fun(DP) ->
                                  [{"application", ecallmgr_util:create_masquerade_event(<<"bridge">>, <<"CHANNEL_EXECUTE_COMPLETE">>)}
                                   ,{"application", "park "}
-                                  |DP
+                                  | DP
                                  ]
                          end
                        ],
             case DialStrings of
-                <<>> ->
-                    {'error', <<"registrar returned no endpoints">>};
+                <<>> -> {'error', <<"registrar returned no endpoints">>};
                 _ ->
                     lager:debug("creating bridge dialplan"),
                     {<<"xferext">>, lists:foldr(fun(F, DP) -> F(DP) end, [], Routines)}
@@ -552,7 +542,7 @@ get_fs_app(Node, UUID, JObj, <<"call_pickup">>) ->
                             'true' = ecallmgr_fs_channel:move(Target, OtherNode, Node),
                             get_call_pickup_app(Node, UUID, JObj, Target)
                     end;
-                {'error', not_found} ->
+                {'error', 'not_found'} ->
                     lager:debug("failed to find target callid ~s", [Target]),
                     {'error', <<"failed to find target callid ", Target/binary>>}
             end
@@ -564,25 +554,19 @@ get_fs_app(Node, UUID, JObj, <<"execute_extension">>) ->
         'true' ->
             Generators = [fun(DP) ->
                                   case wh_json:is_true(<<"Reset">>, JObj) of
-                                      'false' -> ok;
+                                      'false' -> 'ok';
                                       'true' ->
                                           create_dialplan_move_ccvs(<<"Execute-Extension-Original-">>, Node, UUID, DP)
                                   end
                           end
                           ,fun(DP) ->
                                    CCVs = wh_json:get_value(<<"Custom-Channel-Vars">>, JObj, wh_json:new()),
-                                   case wh_json:is_empty(CCVs) of
-                                       'true' -> DP;
-                                       'false' ->
-                                           ChannelVars = wh_json:to_proplist(CCVs),
-                                           [{"application", <<"set ", (ecallmgr_util:get_fs_kv(K, V, UUID))/binary>>}
-                                            || {K, V} <- ChannelVars] ++ DP
-                                   end
+                                   add_ccv_setters(UUID, CCVs, DP)
                            end
                           ,fun(DP) ->
                                    [{"application", <<"set ", ?CHANNEL_VAR_PREFIX, "Executing-Extension=true">>}
                                     ,{"application", <<"execute_extension ", (wh_json:get_value(<<"Extension">>, JObj))/binary>>}
-                                    |DP
+                                    | DP
                                    ]
                            end
                           ,fun(DP) ->
@@ -591,7 +575,7 @@ get_fs_app(Node, UUID, JObj, <<"execute_extension">>) ->
                                                                                            ,<<"CHANNEL_EXECUTE_COMPLETE">>
                                                                                           )}
                                     ,{"application", "park "}
-                                    |DP
+                                    | DP
                                    ]
                            end
                           ],
@@ -1020,4 +1004,14 @@ tts_flite_voice(JObj) ->
     case wh_json:is_json_object(JObj) of
         'true' -> tts_flite_voice(wh_json:get_value(<<"Voice">>, JObj));
         'false' -> tts_flite_voice(<<"female">>)
+    end.
+
+-spec add_ccv_setters(ne_binary(), wh_json:object(), wh_proplist()) -> wh_proplist().
+add_ccv_setters(UUID, CCVs, DP) ->
+    case wh_json:is_json_object(CCVs) of
+        'false' -> DP;
+        'true' ->
+            wh_json:foldl(fun(K, V, L) ->
+                                  [{"application", <<"set ", (ecallmgr_util:get_fs_kv(K, V, UUID))/binary>>} | L]
+                          end, DP, CCVs)
     end.
