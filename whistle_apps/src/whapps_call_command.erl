@@ -245,18 +245,17 @@ relay_event(Pid, JObj) -> Pid ! {'amqp_msg', JObj}.
                            {'ok', wh_json:object()} |
                            {'other', wh_json:object()} |
                            {'error', 'timeout'}.
-receive_event(Timeout) ->
-    receive_event(Timeout, true).
-receive_event(T, _) when T =< 0 -> {error, timeout};
+receive_event(Timeout) -> receive_event(Timeout, 'true').
+receive_event(T, _) when T =< 0 -> {'error', 'timeout'};
 receive_event(Timeout, IgnoreOthers) ->
     Start = erlang:now(),
     receive
-        {amqp_msg, JObj} -> {ok, JObj};
+        {'amqp_msg', JObj} -> {'ok', JObj};
         _ when IgnoreOthers ->
             receive_event(Timeout - wh_util:elapsed_ms(Start), IgnoreOthers);
-        Other -> {other, Other}
+        Other -> {'other', Other}
     after
-        Timeout -> {error, timeout}
+        Timeout -> {'error', 'timeout'}
     end.
 
 -spec audio_macro(audio_macro_prompts(), whapps_call:call()) -> ne_binary().
