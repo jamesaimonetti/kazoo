@@ -41,6 +41,7 @@
 -export([page/2, page/3, page/4, page/5, page/6]).
 -export([hold/1, hold/2
          ,b_hold/1, b_hold/2, b_hold/3
+         ,park/1
         ]).
 -export([play/2, play/3]).
 -export([prompt/2, prompt/3]).
@@ -694,6 +695,13 @@ b_hold(MOH, Call) ->
 b_hold(Timeout, MOH, Call) ->
     hold(MOH, Call),
     wait_for_message(<<"hold">>, <<"CHANNEL_EXECUTE_COMPLETE">>, <<"call_event">>, Timeout).
+
+-spec park(whapps_call:call()) -> 'ok'.
+park(Call) ->
+    Command = [{<<"Application-Name">>, <<"park">>}
+               ,{<<"Insert-At">>, <<"now">>}
+              ],
+    send_command(Command, Call).
 
 %%--------------------------------------------------------------------
 %% @public
