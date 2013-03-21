@@ -680,8 +680,8 @@ get_fs_app(_Node, _UUID, _JObj, _App) ->
 
 get_conference_app(ChanNode, UUID, JObj, 'true') ->
     ConfName = wh_json:get_value(<<"Conference-ID">>, JObj),
-    ConferenceConfig = wh_json:get_value(<<"Conference-Config">>, JObj, <<"default">>),
-    Cmd = list_to_binary([ConfName, "@", ConferenceConfig]),
+    ConferenceProfile = wh_json:get_value(<<"Profile">>, JObj, <<"default">>),
+    Cmd = list_to_binary([ConfName, "@", ConferenceProfile]),
 
     case ecallmgr_fs_conferences:node(ConfName) of
         {'error', 'not_found'} ->
